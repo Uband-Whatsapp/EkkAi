@@ -32,6 +32,9 @@
     <style type="text/tailwindcss">
         @layer utilities {
             .content-auto { content-visibility: auto; }
+.incoming {
+    background: #F0F4F8;
+}
             .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
             .scrollbar-hide::-webkit-scrollbar { display: none; }
             .text-shadow { text-shadow: 0 1px 2px rgba(0,0,0,0.1); }
@@ -47,7 +50,7 @@
         <header class="bg-gradient-to-r from-primary to-secondary text-white px-4 py-3 flex items-center justify-between shadow-lg z-20">
             <div class="flex items-center gap-3">
                 <div class="w-11 h-11 rounded-full bg-white/20 flex items-center justify-center shadow-md">
-                    <i class="fa fa-robot text-xl"></i>
+                    <i class="fa fa-android text-xl"></i>
                 </div>
                 <div>
                     <h1 class="font-bold text-lg text-shadow">AiEkk <span class="text-xs bg-accent/80 px-1.5 py-0.5 rounded-md">v2.0</span></h1>
@@ -93,7 +96,7 @@
                 <!-- Pesan Selamat Datang -->
                 <div class="flex gap-3 mb-5 max-w-[85%]">
                     <div class="w-9 h-9 rounded-full bg-ekkstore text-white flex items-center justify-center shrink-0 mt-1 shadow">
-                        <i class="fa fa-robot text-sm"></i>
+                        <i class="fa fa-android text-sm"></i>
                     </div>
                     <div class="incoming rounded-2xl rounded-tl-none p-3.5 shadow-md relative">
                         <p class="text-sm leading-relaxed">👋 Halo! Saya <b>AiEkk</b>, AI cerdas buatan <b>Ekk Store</b>. Semua fitur yang kamu minta sudah aktif 100%! <br><br>✅ Edit Foto & Upload File<br>✅ Buat Gambar & Menulis<br>✅ Terjemahkan Bahasa<br>✅ Baca Isi File & Web<br>✅ Suara & Rekaman (VN)<br>✅ Edit Pesan & Muat Ulang Jawaban<br><br>Ada yang bisa saya bantu hari ini?</p>
@@ -186,32 +189,392 @@
 
     </div>
 
-    <script>
-        // === KONFIGURASI UTAMA ===
-        const API_URL = '/api/chat'; 
-        const KUNCI_API = 'ekkstore_2026'; 
-        let voiceEnabled = true;
-        let recognition;
-        let lastAiResponse = "";
-        let currentEditMsg = null;
+<script>
+    // === KONFIGURASI UTAMA ===
+    const API_URL = '/api/chat';
+    const KUNCI_API = 'ekkstore_2026';
 
-        // === ELEMENTS ===
-        const chatForm = document.getElementById('chatForm');
-        const pesanInput = document.getElementById('pesanInput');
-        const chatArea = document.getElementById('chatArea');
-        const fileInput = document.getElementById('fileInput');
-        const btnEditMode = document.getElementById('btnEditMode');
-        const chatPage = document.getElementById('chatPage');
-        const editPage = document.getElementById('editPage');
-        const backToChat = document.getElementById('backToChat');
-        const btnVoice = document.getElementById('btnVoice');
-        const recordBtn = document.getElementById('recordBtn');
-        const recordingIndicator = document.getElementById('recordingIndicator');
-        const editModal = document.getElementById('editModal');
-        const editTextArea = document.getElementById('editTextArea');
-        const saveEdit = document.getElementById('saveEdit');
-        const cancelEdit = document.getElementById('cancelEdit');
+    let voiceEnabled = true;
+    let recognition = null;
+    let currentEditMsg = null;
+    let currentFilter = 'normal';
+    let currentImage = null;
+    let isRecording = false;
 
-        // Element Edit Foto
-        const editFileInput = document.getElementById('editFileInput');
-        const editCanvas = document.getElementById('edit
+    // === ELEMENTS ===
+    const chatForm = document.getElementById('chatForm');
+    const pesanInput = document.getElementById('pesanInput');
+    const chatArea = document.getElementById('chatArea');
+    const fileInput = document.getElementById('fileInput');
+    const btnEditMode = document.getElementById('btnEditMode');
+    const chatPage = document.getElementById('chatPage');
+    const editPage = document.getElementById('editPage');
+    const backToChat = document.getElementById('backToChat');
+    const btnVoice = document.getElementById('btnVoice');
+    const recordBtn = document.getElementById('recordBtn');
+    const recordingIndicator = document.getElementById('recordingIndicator');
+    const editModal = document.getElementById('editModal');
+    const editTextArea = document.getElementById('editTextArea');
+    const saveEdit = document.getElementById('saveEdit');
+    const cancelEdit = document.getElementById('cancelEdit');
+
+    const editFileInput = document.getElementById('editFileInput');
+    const editCanvas = document.getElementById('editCanvas');
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    const filterButtons = document.querySelectorAll('.filter-btn');
+    const specialButtons = document.querySelectorAll('.aksi-btn');
+
+    const ctx = editCanvas.getContext('2d');
+
+    // === MARKED SETUP ===
+    marked.setOptions({
+        breaks: true,
+        gfm: true
+    });
+
+    // === UTIL ===
+    function scrollToBottom() {
+        chatArea.scrollTop = chatArea.scrollHeight;
+    }
+
+    function escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function speakText(text) {
+        if (!voiceEnabled || !('speechSynthesis' in window)) return;
+
+        const cleanText = String(text)
+            .replace(/<[^>]*>/g, ' ')
+            .replace(/[#*_`[\]()]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        if (!cleanText) return;
+
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        utterance.lang = 'id-ID';
+        utterance.rate = 1;
+        utterance.pitch = 1;
+        window.speechSynthesis.speak(utterance);
+    }
+
+    function createMessageBubble(role, content, messageId = null) {
+        const wrapper = document.createElement('div');
+
+        if (role === 'user') {
+            wrapper.className = 'flex justify-end mb-4';
+            wrapper.innerHTML = `
+                <div class="max-w-[85%] bg-gradient-to-r from-primary to-secondary text-white rounded-2xl rounded-br-none p-3.5 shadow-md">
+                    <div class="text-sm leading-relaxed whitespace-pre-wrap">${escapeHtml(content)}</div>
+                </div>
+            `;
+        } else {
+            wrapper.className = 'flex gap-3 mb-5 max-w-[85%]';
+            wrapper.dataset.messageId = messageId || '';
+
+            wrapper.innerHTML = `
+                <div class="w-9 h-9 rounded-full bg-ekkstore text-white flex items-center justify-center shrink-0 mt-1 shadow">
+                    <i class="fa fa-android text-sm"></i>
+                </div>
+                <div class="incoming rounded-2xl rounded-tl-none p-3.5 shadow-md relative w-full">
+                    <div class="text-sm leading-relaxed prose prose-sm max-w-none"></div>
+                </div>
+            `;
+
+            const contentBox = wrapper.querySelector('.prose');
+            contentBox.innerHTML = marked.parse(content || '');
+        }
+
+        chatArea.appendChild(wrapper);
+        scrollToBottom();
+        return wrapper;
+    }
+
+    function createTypingBubble() {
+        return createMessageBubble('assistant', '⏳ Memproses...');
+    }
+
+    async function extractFileToText(file) {
+        if (!file) return '';
+
+        if (file.type.startsWith('text/')) {
+            return await file.text();
+        }
+
+        if (file.type.startsWith('image/')) {
+            try {
+                const result = await Tesseract.recognize(file, 'eng');
+                return result?.data?.text || '';
+            } catch (err) {
+                console.warn('OCR gagal:', err);
+                return '';
+            }
+        }
+
+        return '';
+    }
+
+    function setEditPageVisible(visible) {
+        if (visible) {
+            editPage.classList.remove('hidden');
+            chatPage.classList.add('hidden');
+        } else {
+            editPage.classList.add('hidden');
+            chatPage.classList.remove('hidden');
+        }
+    }
+
+    function applyFilterToCanvas() {
+        if (!currentImage) return;
+
+        const filters = {
+            normal: 'none',
+            grayscale: 'grayscale(100%)',
+            sepia: 'sepia(100%)',
+            invert: 'invert(100%)',
+            blur: 'blur(4px)',
+            brightness: 'brightness(130%)',
+            contrast: 'contrast(140%)',
+            saturate: 'saturate(160%)'
+        };
+
+        const img = currentImage;
+        editCanvas.width = img.naturalWidth;
+        editCanvas.height = img.naturalHeight;
+
+        ctx.filter = filters[currentFilter] || 'none';
+        ctx.clearRect(0, 0, editCanvas.width, editCanvas.height);
+        ctx.drawImage(img, 0, 0, editCanvas.width, editCanvas.height);
+        ctx.filter = 'none';
+    }
+
+    function loadImageIntoEditor(file) {
+        if (!file || !file.type.startsWith('image/')) {
+            alert('Pilih file gambar dulu.');
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                currentImage = img;
+                currentFilter = 'normal';
+                applyFilterToCanvas();
+                setEditPageVisible(true);
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function sendToApi(pesan) {
+        return fetch(API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                pesan,
+                kunci_api: KUNCI_API,
+                pengguna_id: 'web'
+            })
+        });
+    }
+
+    // === VOICE RECOGNITION ===
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+        recognition = new SpeechRecognition();
+        recognition.lang = 'id-ID';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = () => {
+            isRecording = true;
+            recordingIndicator.classList.remove('hidden');
+            recordBtn.classList.add('text-accent');
+        };
+
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            pesanInput.value = transcript;
+        };
+
+        recognition.onerror = (event) => {
+            console.warn('Speech recognition error:', event.error);
+        };
+
+        recognition.onend = () => {
+            isRecording = false;
+            recordingIndicator.classList.add('hidden');
+            recordBtn.classList.remove('text-accent');
+        };
+    }
+
+    // === EVENT: SEND CHAT ===
+    chatForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        let pesan = pesanInput.value.trim();
+        const file = fileInput.files[0];
+
+        if (!pesan && !file) return;
+
+        if (file) {
+            if (!pesan) {
+                const extracted = await extractFileToText(file);
+                pesan = extracted.trim() || 'baca isi file ini';
+            } else {
+                pesan += `\n\n[File terlampir: ${file.name}]`;
+            }
+        }
+
+        createMessageBubble('user', pesan);
+        pesanInput.value = '';
+
+        const typingBubble = createTypingBubble();
+
+        try {
+            const response = await sendToApi(pesan);
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data?.pesan || 'Request gagal');
+            }
+
+            const jawaban = data?.jawaban || 'Tidak ada jawaban.';
+            typingBubble.remove();
+            createMessageBubble('assistant', jawaban);
+            speakText(jawaban);
+        } catch (err) {
+            typingBubble.remove();
+            createMessageBubble('assistant', `❌ Gagal menghubungi server: ${escapeHtml(err.message)}`);
+        }
+
+        fileInput.value = '';
+    });
+
+    // === SPECIAL MENU BUTTONS ===
+    specialButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const action = btn.dataset.action;
+
+            if (action === 'buat-gambar') {
+                pesanInput.value = '/gambar ';
+            } else if (action === 'tulis-artikel') {
+                pesanInput.value = '/tulis ';
+            } else if (action === 'terjemahkan') {
+                pesanInput.value = '/terjemah ke bahasa Inggris ';
+            } else if (action === 'baca-file') {
+                pesanInput.value = 'baca isi file ini';
+            } else if (action === 'baca-web') {
+                pesanInput.value = '/bacaweb ';
+            } else if (action === 'edit-foto') {
+                setEditPageVisible(true);
+            }
+
+            pesanInput.focus();
+            scrollToBottom();
+        });
+    });
+
+    // === VOICE TOGGLE ===
+    btnVoice.addEventListener('click', () => {
+        voiceEnabled = !voiceEnabled;
+        btnVoice.innerHTML = voiceEnabled
+            ? '<i class="fa fa-volume-up"></i>'
+            : '<i class="fa fa-volume-off"></i>';
+        btnVoice.title = voiceEnabled ? 'Suara Aktif' : 'Suara Nonaktif';
+    });
+
+    // === RECORD BUTTON ===
+    recordBtn.addEventListener('click', () => {
+        if (!recognition) {
+            alert('Browser ini tidak mendukung rekaman suara.');
+            return;
+        }
+
+        if (!isRecording) {
+            recognition.start();
+        }
+    });
+
+    // === EDIT PAGE OPEN/CLOSE ===
+    btnEditMode.addEventListener('click', () => {
+        setEditPageVisible(true);
+    });
+
+    backToChat.addEventListener('click', () => {
+        setEditPageVisible(false);
+    });
+
+    // === EDIT IMAGE INPUT ===
+    editFileInput.addEventListener('change', () => {
+        const file = editFileInput.files[0];
+        if (file) loadImageIntoEditor(file);
+    });
+
+    // === FILTER BUTTONS ===
+    filterButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            currentFilter = btn.dataset.filter || 'normal';
+            applyFilterToCanvas();
+
+            filterButtons.forEach((b) => {
+                b.classList.remove('bg-secondary', 'text-white');
+            });
+
+            btn.classList.add('bg-secondary', 'text-white');
+        });
+    });
+
+    // === DOWNLOAD EDIT RESULT ===
+    downloadBtn.addEventListener('click', () => {
+        if (!currentImage) {
+            alert('Belum ada gambar untuk disimpan.');
+            return;
+        }
+
+        const link = document.createElement('a');
+        link.download = `aiekk-edit-${Date.now()}.png`;
+        link.href = editCanvas.toDataURL('image/png');
+        link.click();
+    });
+
+    // === EDIT MODAL (kalau nanti dipakai) ===
+    saveEdit.addEventListener('click', () => {
+        if (currentEditMsg) {
+            currentEditMsg.textContent = editTextArea.value;
+        }
+        editModal.classList.add('hidden');
+        currentEditMsg = null;
+    });
+
+    cancelEdit.addEventListener('click', () => {
+        editModal.classList.add('hidden');
+        currentEditMsg = null;
+    });
+
+    // === ENTER TO SEND ===
+    pesanInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            chatForm.requestSubmit();
+        }
+    });
+
+    // === INIT ===
+    scrollToBottom();
+</script>
+</body>
+</html>
